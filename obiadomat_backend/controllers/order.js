@@ -4,16 +4,19 @@ const handleOrderMake = (req, res, db) =>{
         const mealIds = getMealIdList(orderedMeals); 
         db.select('*').from('meals').whereIn('id', mealIds)
             .then(meals => {
-                const orderedM = createOrderObject(orderedMeals);
+                const orderedM = createOrderObject(userId, orderedMeals);
                 db.select('currency').from('users').where('id', '=', userId)
                     .then(currency => {
                         currency = currency[0].currency;
+                        console.log('order currency: ' + currency);
                         db.transaction(trx => {
                                 const totalPrice = calculateOrderPrice(orderedM, meals);
+                                console.log(totalPrice);
                                 if (totalPrice > currency) {
                                     res.status(400).json('not enought money to order');
                                 } else {
                                     currency = currency - totalPrice;
+                                    console.log('order currency after -: ' + currency);
                                     trx('orderedmeals').insert(orderedMeals)
                                         .returning('*')
                                         .then(order => {
@@ -38,7 +41,10 @@ const handleOrderMake = (req, res, db) =>{
                     })
                     .catch(err => res.status(400).json('cannot get users'))
             })
-            .catch(err => res.status(400).json('cannot get meals'))
+            .catch(err => {
+                res.status(400).json('cannot get meals');
+                console.log(err);
+            })
     } else {
         res.status(400).json('empty order');
     }
@@ -46,18 +52,55 @@ const handleOrderMake = (req, res, db) =>{
 }
 
 const handleOrderDelete = (req, res, db) =>{
-    const {id} = req.params;
+    //TODO add currency back to user after deletion using transaction
+    const {userId, orderedMeals} = req.body;
     const today = currentDay();
-    db('orderedmeals').where((builder) =>{
-        builder.where('orderdate', '>', today).where('userId', '=', id)
-    })
-    .del()
-    .then(() =>{
-        res.json({});
-    })
-    .catch(err =>{
-        res.status(400).json('cannot remove order');
-    })
+    const mealIds = getMealIdList(orderedMeals); 
+    db.select('*').from('meals').whereIn('id', mealIds)
+        .then(meals => {
+            //const orderedM = createOrderObject(userId, orderedMeals);
+            db.select('currency').from('users').where('id', '=', userId)
+                .then(currency => {
+                    currency = currency[0].currency;
+                    console.log('del currency: ' + currency);
+                    const totalPrice = calculateOrderPrice(orderedMeals, meals);
+                    console.log('del price: ' + totalPrice);
+                    db.transaction(trx =>{
+                        trx('orderedmeals').where((builder) =>{
+                            builder.where('orderdate', '>', today).where('userid', '=', userId)
+                        })
+                        .del()
+                        .then(() =>{
+                            const newCurrency = parseFloat(currency) + parseFloat(totalPrice);
+                            console.log('del currency after +: ' + newCurrency);
+                            return trx('users').where('id', '=', userId).update({
+                                currency: newCurrency
+                            })
+                            .returning('currency')
+                            .then(currency => {
+                                order = {
+                                    currency: currency[0],
+                                    orderedMeals: {}
+                                }
+                                res.json(order);
+                            })
+                            .catch(err => res.status(400).json('error while deleting order'))
+                        })
+                        .then(trx.commit)
+                        .catch(trx.rollback)
+                    })
+                    .catch(err => {
+                        res.status(400).json('cannot delete order');
+                        console.log(err);
+                    })
+
+                })
+                .catch(err => {
+                    res.status(400).json('cannot get users');
+                    console.log(err)
+                })
+            })
+        .catch(err => res.status(400).json('cannot get meals'))
 }
 
 const handleOrderUpdate = (req, res, db) =>{
@@ -148,7 +191,7 @@ const getMealIdList = (orderedMeals) =>{
     });
 }
 
-const createOrderObject = (orderedMeals) =>{
+const createOrderObject = (userId, orderedMeals) =>{
      return orderedMeals.map((meal) => {
         meal.userid = userId;
         meal.orderdate = new Date();

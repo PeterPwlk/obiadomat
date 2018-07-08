@@ -32,7 +32,7 @@ app.put('/meal/:id', (req, res) => meals.handleMealUpdate(req, res, db));
 app.delete('/meal/:id', (req, res) => meals.handleMealDelete(req, res, db));
 app.put('/order', (req, res) => order.handleOrderMake(req, res, db));
 app.put('/currency', (req, res) => currency.handleCurrencyUpdate(req, res, db));
-app.delete('/removeorder/:id', (req, res) => order.handleOrderDelete(req, res, db));
+app.delete('/removeorder', (req, res) => order.handleOrderDelete(req, res, db));
 app.get('/get_current_orders', (req, res) => order.handleOrdersGet(req, res, db)); 
 app.put('/updateorder', (req, res) =>{
     handleOrderDelete(req, res, db);
