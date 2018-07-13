@@ -1,23 +1,23 @@
 const handleOrderMake = (req, res, db) =>{
     const {userId, orderedMeals} = req.body;
     if(userId && orderedMeals){
+        const sortedOrderedMeals = orderedMeals.sort((a , b) => {
+            return parseInt(a.mealid) - parseInt(b.mealid)
+        });
         const mealIds = getMealIdList(orderedMeals); 
-        db.select('*').from('meals').whereIn('id', mealIds)
+        db.select('price').from('meals').whereIn('id', mealIds).orderBy('id')
             .then(meals => {
                 const orderedM = createOrderObject(userId, orderedMeals);
                 db.select('currency').from('users').where('id', '=', userId)
                     .then(currency => {
                         currency = currency[0].currency;
-                        console.log('order currency: ' + currency);
                         db.transaction(trx => {
-                                const totalPrice = calculateOrderPrice(orderedM, meals);
-                                console.log(totalPrice);
+                                const totalPrice = calculateOrderPrice(sortedOrderedMeals, meals);
                                 if (totalPrice > currency) {
                                     res.status(400).json('not enought money to order');
                                 } else {
                                     currency = currency - totalPrice;
-                                    console.log('order currency after -: ' + currency);
-                                    trx('orderedmeals').insert(orderedMeals)
+                                    trx('orderedmeals').insert(orderedM)
                                         .returning('*')
                                         .then(order => {
                                             return trx('users').where('id', '=', userId).update({
@@ -52,19 +52,16 @@ const handleOrderMake = (req, res, db) =>{
 }
 
 const handleOrderDelete = (req, res, db) =>{
-    //TODO add currency back to user after deletion using transaction
-    const {userId, orderedMeals} = req.body;
+    const {userId} = req.body;
     const today = currentDay();
-    const mealIds = getMealIdList(orderedMeals); 
-    db.select('*').from('meals').whereIn('id', mealIds)
-        .then(meals => {
-            //const orderedM = createOrderObject(userId, orderedMeals);
+    db.select('price','quantity').from('orderedmeals').where((builder) =>{
+        builder.where('orderdate', '>', today).where('userid', '=', userId)
+         }).innerJoin('meals', 'orderedmeals.mealid','meals.id')
+        .then(oldMeals =>{
             db.select('currency').from('users').where('id', '=', userId)
                 .then(currency => {
                     currency = currency[0].currency;
-                    console.log('del currency: ' + currency);
-                    const totalPrice = calculateOrderPrice(orderedMeals, meals);
-                    console.log('del price: ' + totalPrice);
+                    const totalPrice = calculateOrderPrice(oldMeals, oldMeals);
                     db.transaction(trx =>{
                         trx('orderedmeals').where((builder) =>{
                             builder.where('orderdate', '>', today).where('userid', '=', userId)
@@ -72,7 +69,6 @@ const handleOrderDelete = (req, res, db) =>{
                         .del()
                         .then(() =>{
                             const newCurrency = parseFloat(currency) + parseFloat(totalPrice);
-                            console.log('del currency after +: ' + newCurrency);
                             return trx('users').where('id', '=', userId).update({
                                 currency: newCurrency
                             })
@@ -93,7 +89,6 @@ const handleOrderDelete = (req, res, db) =>{
                         res.status(400).json('cannot delete order');
                         console.log(err);
                     })
-
                 })
                 .catch(err => {
                     res.status(400).json('cannot get users');
@@ -104,23 +99,70 @@ const handleOrderDelete = (req, res, db) =>{
 }
 
 const handleOrderUpdate = (req, res, db) =>{
-    const {userId, orderedMeals} = req.body;
     //TODO export currentDay to different file
+    //TODO need to calculate two order prices one for old one for new order
+    const {userId, orderedMeals} = req.body;
     const today = currentDay();
+    const mealIds = getMealIdList(orderedMeals); 
     if(userId && orderedMeals){
-        db.transaction(trx =>{
-            trx('orderedmeals').where((builder) =>{
-                builder.where('orderdate', '>', today).where('userId', '=', id)
-            })
-            .del()
-            .then(() =>{
-                /* TODO 
-                    make selection into a method to avoid code duplication
-                */
-            })
-            .then(trx.commit)
-            .catch(trx.rollback)
-        })    
+        db.select('*').from('meals').whereIn('id', mealIds)
+        .then(meals => {
+            const orderedM = createOrderObject(userId, orderedMeals);
+            db.select('currency').from('users').where('id', '=', userId)
+                .then(currency =>{
+                    db.select('price','quantity').from('orderedmeals').where((builder) =>{
+                        builder.where('orderdate', '>', today).where('userid', '=', userId)
+                    }).innerJoin('meals', 'orderedmeals.mealid','meals.id')
+                    .then(oldMeals =>{
+                        currency = currency[0].currency;
+                        const totalPriceNew = calculateOrderPrice(orderedM, meals);
+                        const totalPriceOld = calculateOrderPrice(oldMeals, oldMeals);
+                        const newCurrency = parseFloat(currency) + parseFloat(totalPriceOld);
+                        if(totalPriceNew > newCurrency){
+                            res.status(400).json('not enought money');
+                        } else {
+                            db.transaction(trx =>{
+                                trx('orderedmeals').where((builder) =>{
+                                    builder.where('orderdate', '>', today).where('userid', '=', userId)
+                                })
+                                .del()
+                                .then(() =>{
+                                        currency = newCurrency - totalPriceNew;
+                                        return trx('orderedmeals').insert(orderedMeals)
+                                            .returning('*')
+                                            .then(order => {
+                                                return trx('users').where('id', '=', userId).update({
+                                                        currency: currency
+                                                    })
+                                                    .returning('currency')
+                                                    .then(currency => {
+                                                        order = {
+                                                            currency: currency[0],
+                                                            orderedMeals: order
+                                                        }
+                                                        res.json(order);
+                                                    })
+                                                    .catch(err => {
+                                                        res.status(400).json('error while making order')
+                                                        console.log(err);
+                                                    })
+                                            })  
+                                })
+                                .then(trx.commit)
+                                .catch(trx.rollback);
+                            })
+                        }
+                    }) 
+                })
+                .catch(err => {
+                    res.status(400).json('cannot get users')
+                    console.log(err);
+                })
+        })
+        .catch(err => {
+            res.status(400).json('cannot get meals');
+            console.log(err);
+        })
     } else {
         res.status(400).json('empty order');
     }
@@ -132,7 +174,6 @@ const handleOrdersGet = (req, res, db) =>{
     db.select('*').from('orderedmeals').where('orderdate', '>', today)
         .then(orders => {
             const groupedOrders = groupOrders(orders, param);
-            console.log(groupedOrders);
             res.json(groupedOrders);
         })
         .catch(err => {
@@ -201,6 +242,7 @@ const createOrderObject = (userId, orderedMeals) =>{
 
 const calculateOrderPrice = (orderedMeals, meals) =>{
     return orderedMeals.reduce((prev, meal, index) => {
+        console.log(parseFloat(meals[index].price) * parseInt(meal.quantity));
         return prev + parseFloat(meals[index].price) * parseInt(meal.quantity);
     }, 0);
 }
@@ -216,5 +258,6 @@ const currentDay = () => {
 module.exports = {
     handleOrderMake,
     handleOrderDelete,
-    handleOrdersGet
+    handleOrdersGet,
+    handleOrderUpdate
 }

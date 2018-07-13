@@ -34,10 +34,7 @@ app.put('/order', (req, res) => order.handleOrderMake(req, res, db));
 app.put('/currency', (req, res) => currency.handleCurrencyUpdate(req, res, db));
 app.delete('/removeorder', (req, res) => order.handleOrderDelete(req, res, db));
 app.get('/get_current_orders', (req, res) => order.handleOrdersGet(req, res, db)); 
-app.put('/updateorder', (req, res) =>{
-    handleOrderDelete(req, res, db);
-    handleOrderMake(req, res, db);
-})
+app.put('/updateorder', (req, res) => order.handleOrderUpdate(req, res, db));
 app.put('/updateuserprofile', (req, res) =>{
     //TODO change update funcs to only update not null provided data
     const {id, firstname, lastname, email} = req.body;
