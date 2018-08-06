@@ -210,9 +210,7 @@ const groupOrders = (orders, param) =>{
 }
 
 const getOrderInfo = (userid, orderedMeals, db) =>{
-    /*
-    TODO change to use promise
-    */
+    //TODO change to use promise
     const orderinfo = {};
     const mealIds = getMealIdList(orderedMeals);
     db.select('price').from('meals').where('id', mealIds)
