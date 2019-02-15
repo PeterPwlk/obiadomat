@@ -49,12 +49,12 @@ export const addMealToOrder = (state = initialStateMealsToOrder, action = {}) =>
                     return {...state, 
                         mealsToOrder: state.mealsToOrder.map(meal => 
                             (meal.meal === action.meal)
-                            ?{...meal, quantity: action.payload}
+                            ?{...meal, quantity: parseInt(action.payload)}
                             :meal
                         )}
                 }
             }
-            return {...state, mealsToOrder: [...state.mealsToOrder,{meal: action.meal,quantity: action.payload,toggle: false}]}
+            return {...state, mealsToOrder: [...state.mealsToOrder,{meal: action.meal,quantity: parseInt(action.payload),toggle: false}]}
         default: 
             return state;
     }
